@@ -25,7 +25,7 @@ export function RiskProfile() {
       const profile = JSON.parse(savedProfile);
 
       try {
-        const response = await fetch("http://localhost:3001/api/v1/risk-assessment", {
+        const response = await fetch("http://192.168.0.5:3001/api/v1/risk-assessment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

@@ -1,6 +1,7 @@
 import { AdminSidebar } from '../components/AdminSidebar';
 import { useParams, useNavigate } from 'react-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 import {
   ArrowLeft,
   MapPin,
@@ -14,62 +15,124 @@ import {
   Droplet,
 } from 'lucide-react';
 
-// Mock claim data
-const getClaimData = (id: string) => ({
-  id,
-  workerId: 'ZM8472K',
-  workerName: 'Rajesh Kumar',
-  platform: 'Zomato',
-  zone: 'South Delhi',
-  policyTier: 'Premium',
-  premiumPaid: '₹499/month',
-  claimAmount: '₹1,200',
-  disruptionType: 'Heavy Rainfall',
-  triggeredAt: '16 Mar 2026, 2:45 PM',
-  apiData: {
-    source: 'IMD Weather API',
-    rainfall: '45.2 mm',
-    timestamp: '16 Mar 2026, 2:30 PM',
-    location: 'South Delhi Zone',
-    aqiLevel: '152 (Moderate)',
-  },
-  gpsTrace: {
-    claimed: 'South Delhi, 28.5355°N, 77.3910°E',
-    actual: 'South Delhi, 28.5355°N, 77.3910°E',
-    mismatch: false,
-  },
-  fraudScore: 87,
-  anomalyType: 'GPS Spoof',
-  anomalyReason:
-    'GPS coordinates show suspicious pattern matching known spoofing signatures. Device movement inconsistent with reported disruption zone.',
-  timeline: [
-    { status: 'Triggered', time: '16 Mar, 2:45 PM', completed: true },
-    { status: 'API Verified', time: '16 Mar, 2:46 PM', completed: true },
-    { status: 'Fraud Check', time: '16 Mar, 2:47 PM', completed: true },
-    { status: 'Under Review', time: '16 Mar, 2:50 PM', completed: true },
-    { status: 'Decision Pending', time: 'Awaiting', completed: false },
-  ],
-});
-
 export function ClaimReviewDetail() {
   const { claimId } = useParams();
   const navigate = useNavigate();
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [claim, setClaim] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const claim = getClaimData(claimId || 'WS-2024-8472');
-
-  const handleApprove = () => {
-    // Mock approval
-    alert('Claim approved and payout initiated');
-    navigate('/admin');
+  // Mock data for when backend doesn't return full details
+  const mockClaimDetails = {
+    workerName: 'John Doe',
+    workerId: 'WKR-12345',
+    platform: 'Uber',
+    zone: 'South Delhi',
+    policyTier: 'PRO',
+    premiumPaid: '₹499/month',
+    apiData: {
+      source: 'Open-Meteo API',
+      timestamp: new Date().toLocaleString(),
+      rainfall: '45mm',
+      aqiLevel: '285'
+    },
+    gpsTrace: {
+      claimed: '28.5355° N, 77.3910° E',
+      actual: '28.7041° N, 77.1025° E'
+    },
+    anomalyReason: 'GPS coordinates mismatch detected. Device location differs from claimed work zone by 15km.',
+    fraudScore: 87,
+    anomalyType: 'GPS Spoof',
+    claimAmount: '₹2,500',
+    triggeredAt: new Date().toLocaleString(),
+    timeline: [
+      { status: 'Claim Auto-Triggered', time: '2 hours ago', completed: true },
+      { status: 'Weather Data Verified', time: '1 hour ago', completed: true },
+      { status: 'Fraud Check Flagged', time: '45 mins ago', completed: true },
+      { status: 'Manual Review Pending', time: 'Now', completed: false },
+      { status: 'Payout Processing', time: 'Pending', completed: false }
+    ]
   };
 
-  const handleReject = () => {
-    // Mock rejection
-    alert('Claim rejected and worker notified');
-    navigate('/admin');
+  useEffect(() => {
+    async function fetchClaim() {
+      try {
+        const data = await apiFetch(`/api/v1/admin/claims/${claimId}`);
+        // Merge fetched data with mock data to ensure all fields exist
+        setClaim({
+          ...mockClaimDetails,
+          ...data,
+          id: data.id || claimId,
+          apiData: data.apiData || mockClaimDetails.apiData,
+          gpsTrace: data.gpsTrace || mockClaimDetails.gpsTrace,
+          timeline: data.timeline || mockClaimDetails.timeline
+        });
+      } catch (e) {
+        console.error('Failed to fetch claim:', e);
+        // Use mock data as fallback
+        setClaim({
+          ...mockClaimDetails,
+          id: claimId
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchClaim();
+  }, [claimId]);
+
+  const handleApprove = async () => {
+    try {
+      await apiFetch(`/api/v1/admin/claims/${claimId}`, { 
+        method: 'PATCH',
+        body: JSON.stringify({
+          action: 'approve',
+          reviewedBy: 'Admin User',
+          reviewNotes: 'Approved after manual review'
+        })
+      });
+      alert('Claim approved and payout initiated');
+      navigate('/admin/claims');
+    } catch (e) {
+      console.error('Approval failed:', e);
+      alert('Failed to approve claim. Please try again.');
+    }
   };
+
+  const handleReject = async () => {
+    try {
+      await apiFetch(`/api/v1/admin/claims/${claimId}`, { 
+        method: 'PATCH',
+        body: JSON.stringify({
+          action: 'reject',
+          reviewedBy: 'Admin User',
+          reviewNotes: 'Rejected due to fraud detection'
+        })
+      });
+      alert('Claim rejected and worker notified');
+      navigate('/admin/claims');
+    } catch (e) {
+      console.error('Rejection failed:', e);
+      alert('Failed to reject claim. Please try again.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center">
+        <p className="text-gray-600">Loading claim details...</p>
+      </div>
+    );
+  }
+
+  if (!claim) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center">
+        <p className="text-red-600">Claim not found or an error occurred.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F4F6F9]">
@@ -121,29 +184,29 @@ export function ClaimReviewDetail() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Worker Name</p>
-                  <p className="text-base font-medium text-gray-900">{claim.workerName}</p>
+                  <p className="text-base font-medium text-gray-900">{claim?.workerName || claim?.userName || 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Worker ID</p>
-                  <p className="text-base font-medium text-gray-900">{claim.workerId}</p>
+                  <p className="text-base font-medium text-gray-900">{claim?.workerId || claim?.userId || 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Platform</p>
-                  <p className="text-base font-medium text-gray-900">{claim.platform}</p>
+                  <p className="text-base font-medium text-gray-900">{claim?.platform || 'WorkSure'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Operating Zone</p>
-                  <p className="text-base font-medium text-gray-900">{claim.zone}</p>
+                  <p className="text-base font-medium text-gray-900">{claim?.zone || 'Delhi'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Policy Tier</p>
                   <span className="inline-flex px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
-                    {claim.policyTier}
+                    {claim?.policyTier || 'PRO'}
                   </span>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Premium</p>
-                  <p className="text-base font-medium text-gray-900">{claim.premiumPaid}</p>
+                  <p className="text-base font-medium text-gray-900">{claim?.premiumPaid || '₹499/month'}</p>
                 </div>
               </div>
             </div>
@@ -164,13 +227,13 @@ export function ClaimReviewDetail() {
                   <div>
                     <p className="text-xs text-gray-500 mb-1">Data Source</p>
                     <p className="text-sm font-medium text-gray-900">
-                      {claim.apiData.source}
+                      {claim?.apiData?.source || 'Open-Meteo API'}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 mb-1">Timestamp</p>
                     <p className="text-sm font-medium text-gray-900">
-                      {claim.apiData.timestamp}
+                      {claim?.apiData?.timestamp || new Date().toLocaleString()}
                     </p>
                   </div>
                   <div className="col-span-2 flex items-center gap-6">
@@ -179,7 +242,7 @@ export function ClaimReviewDetail() {
                       <div>
                         <p className="text-xs text-gray-500">Rainfall</p>
                         <p className="text-lg font-semibold text-gray-900">
-                          {claim.apiData.rainfall}
+                          {claim?.apiData?.rainfall || '45mm'}
                         </p>
                       </div>
                     </div>
@@ -188,7 +251,7 @@ export function ClaimReviewDetail() {
                       <div>
                         <p className="text-xs text-gray-500">AQI Level</p>
                         <p className="text-lg font-semibold text-gray-900">
-                          {claim.apiData.aqiLevel}
+                          {claim?.apiData?.aqiLevel || '285'}
                         </p>
                       </div>
                     </div>
@@ -225,7 +288,7 @@ export function ClaimReviewDetail() {
                       Claimed Location
                     </h3>
                   </div>
-                  <p className="text-sm text-gray-700">{claim.gpsTrace.claimed}</p>
+                  <p className="text-sm text-gray-700">{claim?.gpsTrace?.claimed || '28.5355° N, 77.3910° E'}</p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -234,7 +297,7 @@ export function ClaimReviewDetail() {
                       Device GPS Data
                     </h3>
                   </div>
-                  <p className="text-sm text-gray-700">{claim.gpsTrace.actual}</p>
+                  <p className="text-sm text-gray-700">{claim?.gpsTrace?.actual || '28.7041° N, 77.1025° E'}</p>
                 </div>
               </div>
               <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
@@ -244,7 +307,7 @@ export function ClaimReviewDetail() {
                     <h3 className="text-sm font-semibold text-red-900 mb-1">
                       Suspicious Pattern Detected
                     </h3>
-                    <p className="text-sm text-red-700">{claim.anomalyReason}</p>
+                    <p className="text-sm text-red-700">{claim?.anomalyReason || 'GPS coordinates mismatch detected'}</p>
                   </div>
                 </div>
               </div>

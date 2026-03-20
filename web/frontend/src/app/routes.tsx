@@ -1,6 +1,11 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { AdminOverview } from "./screens/AdminOverview";
 import { ClaimReviewDetail } from "./screens/ClaimReviewDetail";
+import { AdminPolicies } from "./screens/AdminPolicies";
+import { AdminClaims } from "./screens/AdminClaims";
+import { AdminFraud } from "./screens/AdminFraud";
+import { AdminPayouts } from "./screens/AdminPayouts";
+import { AdminRisk } from "./screens/AdminRisk";
 import { AdminPlaceholder } from "./screens/AdminPlaceholder";
 
 export const router = createBrowserRouter([
@@ -18,23 +23,23 @@ export const router = createBrowserRouter([
   },
   {
     path: "/admin/policies",
-    Component: AdminPlaceholder,
+    Component: AdminPolicies,
   },
   {
     path: "/admin/claims",
-    Component: AdminPlaceholder,
+    Component: AdminClaims,
   },
   {
     path: "/admin/fraud",
-    Component: AdminPlaceholder,
+    Component: AdminFraud,
   },
   {
     path: "/admin/payouts",
-    Component: AdminPlaceholder,
+    Component: AdminPayouts,
   },
   {
     path: "/admin/risk",
-    Component: AdminPlaceholder,
+    Component: AdminRisk,
   },
   {
     path: "/admin/settings",

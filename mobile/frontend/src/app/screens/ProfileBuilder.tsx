@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { ProgressBar } from "../components/ProgressBar";
 import { MapPin, Loader2 } from "lucide-react";
+import { apiFetch } from "../utils/api";
 import { Button } from "../components/ui/button";
 import { Slider } from "../components/ui/slider";
 import {
@@ -49,9 +50,8 @@ export function ProfileBuilder() {
   const handleContinue = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("http://localhost:3001/api/v1/profile", {
+      const data = await apiFetch("/api/v1/profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: "user_" + Math.random().toString(36).slice(2, 9),
           persona: personaId,
@@ -61,12 +61,9 @@ export function ProfileBuilder() {
         }),
       });
 
-      const data = await response.json();
-      if (data.success) {
-        // Store profile in localStorage for subsequent screens
-        localStorage.setItem("userProfile", JSON.stringify(data.profile));
-        navigate("/risk-profile");
-      }
+      // Store profile in localStorage for subsequent screens
+      localStorage.setItem("userProfile", JSON.stringify(data.profile));
+      navigate("/risk-profile");
     } catch (error) {
       console.error("Failed to save profile:", error);
       // Fallback for demo if backend is not running

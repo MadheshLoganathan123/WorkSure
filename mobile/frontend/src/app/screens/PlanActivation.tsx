@@ -63,38 +63,53 @@ export function PlanActivation() {
   const handleActivation = async () => {
     setIsLoading(true);
     const savedProfile = localStorage.getItem("userProfile");
-    const profile = savedProfile ? JSON.parse(savedProfile) : { userId: "anon-user" };
+    const profile = savedProfile ? JSON.parse(savedProfile) : { userId: "demo_user", displayName: "Partner" };
     const plan = plans.find(p => p.id === selectedPlan);
 
+    const policyData = {
+      planId: selectedPlan,
+      plan: selectedPlan,
+      premium: plan?.price || 49,
+      status: "Active",
+      expiresAt: "25/4/2026",
+      expiry: "25/4/2026",
+      coverageAmount: selectedPlan === 'starter' ? 5000 : selectedPlan === 'pro' ? 10000 : 20000,
+      pot: selectedPlan === 'starter' ? 5000 : selectedPlan === 'pro' ? 10000 : 20000,
+      policyNumber: 'POL-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+      id: 'POL-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+      userId: profile.userId,
+      userName: profile.displayName
+    };
+
     try {
+      // Try to save to backend
       const response = await fetch("http://localhost:3001/api/v1/policy/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: profile.userId,
           planId: selectedPlan,
-          coverageAmount: selectedPlan === 'starter' ? 5000 : selectedPlan === 'pro' ? 10000 : 20000,
+          coverageAmount: policyData.coverageAmount,
           premium: plan?.price || 49
         }),
       });
 
-      const data = await response.json();
-      if (data.success) {
-        localStorage.setItem("activePolicy", JSON.stringify(data.policy));
-        navigate("/dashboard");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.policy) {
+          localStorage.setItem("activePolicy", JSON.stringify(data.policy));
+          navigate("/dashboard");
+          return;
+        }
       }
     } catch (error) {
-      console.error("Plan activation failed:", error);
-      // Fallback for demo
-      localStorage.setItem("activePolicy", JSON.stringify({
-        planId: selectedPlan,
-        premium: plan?.price || 49,
-        status: "Active"
-      }));
-      navigate("/dashboard");
-    } finally {
-      setIsLoading(false);
+      console.error("Backend policy activation failed:", error);
     }
+
+    // Fallback: Save to local storage and navigate
+    localStorage.setItem("activePolicy", JSON.stringify(policyData));
+    setIsLoading(false);
+    navigate("/dashboard");
   };
 
   return (

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { BottomNav } from "../components/BottomNav";
+import { apiFetch } from "../utils/api";
 import {
   Shield,
   Sun,
@@ -14,6 +15,8 @@ import {
   Zap,
   Loader2,
 } from "lucide-react";
+import { WeatherWidget } from "../components/WeatherWidget";
+import { CITY_COORDS } from "../utils/cityCoords";
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -38,7 +41,7 @@ export function Dashboard() {
       const savedProfile = localStorage.getItem("userProfile");
       const savedPolicy = localStorage.getItem("activePolicy");
 
-      const parsedProfile = savedProfile ? JSON.parse(savedProfile) : { displayName: "Partner", location: "Delhi" };
+      const parsedProfile = savedProfile ? JSON.parse(savedProfile) : { userId: "00000000-0000-0000-0000-000000000001", displayName: "Partner", location: "Delhi" };
       setProfile(parsedProfile);
 
       if (savedPolicy) {
@@ -48,9 +51,11 @@ export function Dashboard() {
       try {
         // Fetch weather monitoring data based on city
         const city = parsedProfile.location.split(',')[1]?.trim() || "Delhi";
-        const response = await fetch(`http://localhost:3001/api/v1/weather/monitoring?city=${city}`);
-        const data = await response.json();
-        setWeatherData(data);
+        const [weatherData, claims] = await Promise.all([
+          apiFetch(`/api/v1/weather/monitoring?city=${parsedProfile.location}`),
+          apiFetch(`/api/v1/claims/history?userId=${parsedProfile.userId}`)
+        ]);
+        setWeatherData(weatherData);
       } catch (error) {
         console.error("Dashboard fetch failed:", error);
       } finally {
@@ -98,6 +103,13 @@ export function Dashboard() {
         </div>
 
         <div className="px-6 py-6 space-y-6">
+          {/* Weather Pulse */}
+          <WeatherWidget 
+            lat={CITY_COORDS[profile?.location?.split(',')[1]?.trim()]?.lat || 28.6139}
+            lon={CITY_COORDS[profile?.location?.split(',')[1]?.trim()]?.lon || 77.2090}
+            cityName={profile?.location?.split(',')[1]?.trim() || "Delhi"}
+          />
+
           {/* WorkSure Shield Card */}
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[2rem] p-6 shadow-2xl border border-slate-700/50 relative overflow-hidden">
             <div className="relative z-10">
@@ -134,9 +146,16 @@ export function Dashboard() {
                   <p className="text-[10px] text-slate-400 font-black uppercase">Auto-Renewing</p>
                   <div className="w-1.5 h-1.5 bg-white/20 rounded-full" />
                 </div>
-                <p className={`text-[10px] font-black uppercase tracking-widest ${activePolicy ? 'text-emerald-400' : 'text-slate-500'}`}>
-                  {activePolicy ? 'Secured' : 'Inactive'}
-                </p>
+                <button
+                  onClick={() => navigate(activePolicy ? "/policy" : "/plans")}
+                  className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full transition-all ${
+                    activePolicy 
+                      ? 'text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20' 
+                      : 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
+                  }`}
+                >
+                  {activePolicy ? 'View Policy' : 'Activate Now'}
+                </button>
               </div>
             </div>
             {/* Subtle decor */}
@@ -151,7 +170,9 @@ export function Dashboard() {
               </h3>
               <div className="flex items-center gap-1.5">
                 <MapPin className="w-3 h-3 text-slate-600" />
-                <span className="text-[9px] font-black text-slate-500 uppercase">{profile?.location?.split(',')[0]}</span>
+                <span className="text-[9px] font-black text-slate-500 uppercase">
+                  {profile?.location?.split(',')[1]?.trim() || profile?.location?.split(',')[0]}
+                </span>
               </div>
             </div>
             <div className="flex justify-between overflow-x-auto gap-4 scrollbar-hide pb-2">
@@ -192,7 +213,7 @@ export function Dashboard() {
 
             <div className="space-y-4">
               {weatherData?.current?.alerts?.length > 0 ? (
-                weatherData.current?.alerts.map((alert: any, idx: number) => {
+                weatherData?.current?.alerts.map((alert: any, idx: number) => {
                   const Icon = getIcon(alert.type);
                   return (
                     <button

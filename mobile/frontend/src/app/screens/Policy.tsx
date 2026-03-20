@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { BottomNav } from "../components/BottomNav";
+import { apiFetch } from "../utils/api";
 import { Shield, CheckCircle2, Calendar, FileText, ExternalLink, ShieldAlert, Zap } from "lucide-react";
 
 export function Policy() {
@@ -15,17 +16,60 @@ export function Policy() {
   } | null>(null);
 
   useEffect(() => {
-    const policy = localStorage.getItem("activePolicy");
-    if (policy) {
-      const parsed = JSON.parse(policy);
-      // Add fake policy number if missing
-      setActivePolicy({
-        ...parsed,
-        policyNumber: parsed.policyNumber || "WS-" + Math.random().toString(36).slice(2, 8).toUpperCase(),
-        expiresAt: parsed.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
-      });
+    async function syncPolicy() {
+      const savedProfile = localStorage.getItem("userProfile");
+      const savedPolicy = localStorage.getItem("activePolicy");
+      const profile = savedProfile ? JSON.parse(savedProfile) : null;
+
+      if (!profile) return;
+
+      // First check local storage
+      if (savedPolicy) {
+        const localPolicy = JSON.parse(savedPolicy);
+        setActivePolicy({
+          planId: localPolicy.planId || localPolicy.plan || 'pro',
+          premium: localPolicy.premium || 49,
+          status: localPolicy.status || 'Active',
+          expiresAt: localPolicy.expiresAt || localPolicy.expiry || '25/4/2026',
+          coverageAmount: localPolicy.coverageAmount || localPolicy.pot || 10000,
+          policyNumber: localPolicy.policyNumber || localPolicy.id || 'POL-' + Math.random().toString(36).substr(2, 9).toUpperCase()
+        });
+      }
+
+      // Then try to sync with backend
+      try {
+        const policies = await apiFetch(`/api/v1/admin/policies?userId=${profile.userId}`);
+        const currentPolicy = Array.isArray(policies) ? policies.find((p: any) => p.status === 'Active') : null;
+        
+        if (currentPolicy) {
+          const policyData = {
+            planId: currentPolicy.plan,
+            premium: 500,
+            status: currentPolicy.status,
+            expiresAt: currentPolicy.expiry,
+            coverageAmount: currentPolicy.pot,
+            policyNumber: currentPolicy.id
+          };
+          setActivePolicy(policyData);
+          localStorage.setItem("activePolicy", JSON.stringify(policyData));
+        }
+      } catch (e) {
+        console.error("Policy sync failed:", e);
+        // Keep using local storage data if backend fails
+      }
     }
+    syncPolicy();
   }, []);
+
+  const handleRenewal = () => {
+    // In a real app, this would check balance and extend
+    alert("Policy Renewal Initiated via Wallet Balance!");
+    // Simulate extension
+    const newExpiry = "25/4/2026";
+    const updated = { ...activePolicy, expiresAt: newExpiry };
+    setActivePolicy(updated as any);
+    localStorage.setItem("activePolicy", JSON.stringify(updated));
+  };
 
   return (
     <div className="h-full bg-slate-950 flex flex-col relative overflow-hidden">
@@ -110,14 +154,27 @@ export function Policy() {
             </div>
 
             {/* Actions */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button 
+                onClick={handleRenewal}
+                className="w-full h-14 rounded-2xl bg-emerald-500 text-white flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
+              >
+                <Zap className="w-4 h-4" />
+                Renew Now
+              </button>
+              <button 
+                onClick={() => navigate("/plans")}
+                className="w-full h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center gap-2 text-[10px] font-black text-white uppercase tracking-widest active:scale-95 transition-all"
+              >
+                <Shield className="w-4 h-4" />
+                Upgrade
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 pt-2">
-              <button className="w-full h-15 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-800 transition-colors">
+              <button className="w-full h-12 rounded-2xl bg-slate-900 border border-white/5 flex items-center justify-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-800 transition-colors">
                 <FileText className="w-4 h-4" />
                 Download Document
-              </button>
-              <button className="w-full h-15 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-800 transition-colors">
-                <ExternalLink className="w-4 h-4" />
-                Policy Terms
               </button>
             </div>
           </>

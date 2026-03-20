@@ -8,6 +8,7 @@ export function AutoClaim() {
   const navigate = useNavigate();
   const [currentStage, setCurrentStage] = useState(0);
   const [countdown, setCountdown] = useState(180); // 3 minutes in seconds
+  const [claimId, setClaimId] = useState("WS-2024-1642");
 
   const stages = [
     {
@@ -34,6 +35,32 @@ export function AutoClaim() {
   ];
 
   useEffect(() => {
+    async function triggerClaim() {
+      const savedProfile = localStorage.getItem("userProfile");
+      const profile = savedProfile ? JSON.parse(savedProfile) : { userId: "demo_user", location: "Delhi" };
+
+      try {
+        const res = await fetch('http://192.168.0.5:3001/api/v1/claims/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: profile.userId,
+            location: { lat: 28.6139, lon: 77.2090 }, // Default Delhi
+            triggerType: 'rainfall',
+            timestamp: new Date().toISOString()
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setClaimId(data.claim.id);
+        }
+      } catch (error) {
+        console.error("Failed to trigger auto-claim:", error);
+      }
+    }
+
+    triggerClaim();
+
     // Simulate stage progression
     const stageTimer = setInterval(() => {
       setCurrentStage((prev) => {

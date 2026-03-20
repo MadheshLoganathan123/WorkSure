@@ -1,5 +1,8 @@
+import { useState, useEffect } from 'react';
 import { AdminSidebar } from '../components/AdminSidebar';
 import { KPICard } from '../components/KPICard';
+import { apiFetch } from '../utils/api';
+import { supabase } from '../../lib/supabaseClient';
 import {
   LineChart,
   Line,
@@ -13,9 +16,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useNavigate } from 'react-router';
-import { MapPin, AlertTriangle } from 'lucide-react';
+import { MapPin, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 
-// Mock data
+// Mock trend data stays as it's not yet in DB
 const premiumsVsPayoutsData = [
   { week: 'Week 1', premiums: 2400, payouts: 1200 },
   { week: 'Week 2', premiums: 2800, payouts: 1500 },
@@ -35,46 +38,37 @@ const disruptionTypesData = [
   { type: 'Curfew', claims: 34 },
 ];
 
-const cityRiskData = [
-  { city: 'Mumbai', risk: 'high', disruption: 'Heavy Rain', claims: 45 },
-  { city: 'Delhi', risk: 'high', disruption: 'AQI Critical', claims: 67 },
-  { city: 'Bengaluru', risk: 'moderate', disruption: 'Traffic Strike', claims: 23 },
-  { city: 'Chennai', risk: 'high', disruption: 'Flood Alert', claims: 34 },
-  { city: 'Hyderabad', risk: 'low', disruption: 'Normal', claims: 8 },
-  { city: 'Kolkata', risk: 'moderate', disruption: 'Heat Wave', claims: 19 },
-  { city: 'Pune', risk: 'low', disruption: 'Normal', claims: 12 },
-  { city: 'Ahmedabad', risk: 'moderate', disruption: 'Heat Wave', claims: 28 },
-];
-
-const fraudAlerts = [
-  {
-    id: 'WS-2024-8472',
-    workerId: 'ZM8472K',
-    anomalyType: 'GPS Spoof',
-    riskScore: 87,
-    platform: 'Zomato',
-    zone: 'South Delhi',
-  },
-  {
-    id: 'WS-2024-8473',
-    workerId: 'SW9234L',
-    anomalyType: 'Duplicate Claim',
-    riskScore: 94,
-    platform: 'Swiggy',
-    zone: 'Koramangala',
-  },
-  {
-    id: 'WS-2024-8474',
-    workerId: 'BL1823M',
-    anomalyType: 'Zone Mismatch',
-    riskScore: 72,
-    platform: 'Blinkit',
-    zone: 'Andheri West',
-  },
-];
-
 export function AdminOverview() {
   const navigate = useNavigate();
+  const [stats, setStats] = useState<any>(null);
+  const [cityRiskData, setCityRiskData] = useState<any[]>([]);
+  const [fraudAlerts, setFraudAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // Mock data for fallback
+  const mockStats = {
+    totalActive: 5,
+    totalProtectionPot: 85000,
+    pendingApprovals: 2,
+    avgLossRatio: 64.2
+  };
+
+  const mockCityRisk = [
+    { city: 'Delhi', riskLevel: 'High', activePolicies: 245, totalClaims: 89, avgPayout: 3200 },
+    { city: 'Mumbai', riskLevel: 'Moderate', activePolicies: 312, totalClaims: 67, avgPayout: 2800 },
+    { city: 'Bangalore', riskLevel: 'Low', activePolicies: 198, totalClaims: 34, avgPayout: 2100 },
+    { city: 'Chennai', riskLevel: 'High', activePolicies: 156, totalClaims: 78, avgPayout: 3500 },
+    { city: 'Kolkata', riskLevel: 'Moderate', activePolicies: 134, totalClaims: 45, avgPayout: 2600 },
+    { city: 'Hyderabad', riskLevel: 'Low', activePolicies: 189, totalClaims: 29, avgPayout: 1900 }
+  ];
+
+  const mockFraudAlerts = [
+    { id: 'clm_00000001', userName: 'John Doe', userId: 'usr_000001', weatherCondition: 'Heavy Rain', fraudScore: 72, amount: 2500, status: 'Pending' },
+    { id: 'clm_00000004', userName: 'Rachel Zane', userId: 'usr_000004', weatherCondition: 'Heavy Rain', fraudScore: 87, amount: 3000, status: 'Pending' }
+  ];
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
@@ -102,6 +96,68 @@ export function AdminOverview() {
     }
   };
 
+  useEffect(() => {
+    fetchData();
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 30000);
+
+    // Supabase Realtime Subscription for Admin Overview (Claims/Fraud Alerts)
+    const channel = supabase
+      .channel('admin_claims_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'claims'
+        },
+        () => {
+          console.log('Admin Realtime update received: refreshing data...');
+          fetchData(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const [statsData, cityRisk, claims] = await Promise.all([
+        apiFetch('/api/v1/admin/policy-stats'),
+        apiFetch('/api/v1/admin/risk-heatmap'),
+        apiFetch('/api/v1/admin/claims?status=pending')
+      ]);
+      setStats(statsData || mockStats);
+      setCityRiskData(cityRisk && cityRisk.length > 0 ? cityRisk : mockCityRisk);
+      setFraudAlerts(claims && claims.length > 0 ? claims : mockFraudAlerts);
+      setLastUpdated(new Date());
+    } catch (e: any) {
+      console.error('Data fetch failed:', e);
+      setError(e.message || 'Failed to fetch data');
+      // Use mock data as fallback
+      setStats(mockStats);
+      setCityRiskData(mockCityRisk);
+      setFraudAlerts(mockFraudAlerts);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F4F6F9]">
       <AdminSidebar />
@@ -109,35 +165,79 @@ export function AdminOverview() {
       {/* Main Content */}
       <main className="ml-64 p-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-1">Admin Overview</h1>
-          <p className="text-sm text-gray-500">Real-time monitoring of WorkSure platform</p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900 mb-1">Admin Overview</h1>
+            <p className="text-sm text-gray-500">
+              Real-time monitoring of WorkSure platform
+              {lastUpdated && (
+                <span className="ml-2 text-xs text-gray-400">
+                  • Last updated: {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 text-gray-600 ${refreshing ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium text-gray-700">
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </span>
+          </button>
         </div>
 
-        {/* KPI Strip */}
-        <div className="grid grid-cols-4 gap-6 mb-8">
-          <KPICard
-            title="Active Policies This Week"
-            value="2,847"
-            trend={{ value: '+12.5%', direction: 'up' }}
-          />
-          <KPICard
-            title="Total Premiums Collected"
-            value="₹24.8L"
-            trend={{ value: '+8.2%', direction: 'up' }}
-          />
-          <KPICard
-            title="Claims Triggered Today"
-            value="156"
-            trend={{ value: '+23.4%', direction: 'up' }}
-          />
-          <KPICard
-            title="Current Loss Ratio"
-            value="62.3"
-            suffix="%"
-            trend={{ value: '-3.1%', direction: 'down' }}
-          />
-        </div>
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-red-800">Failed to load data</p>
+              <p className="text-xs text-red-600 mt-1">{error}</p>
+            </div>
+            <button
+              onClick={() => fetchData()}
+              className="px-3 py-1 bg-red-100 text-red-700 text-xs font-medium rounded hover:bg-red-200 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mb-4" />
+            <p className="text-gray-500 font-medium">Loading dashboard data...</p>
+          </div>
+        ) : (
+          <>
+            {/* KPI Strip */}
+            <div className="grid grid-cols-4 gap-6 mb-8">
+              <KPICard
+                title="Active Policies This Week"
+                value={stats ? stats.totalActive.toLocaleString() : "0"}
+                trend={{ value: '+12.5%', direction: 'up' }}
+              />
+              <KPICard
+                title="Total Protection Pot"
+                value={stats ? `₹${(stats.totalProtectionPot / 1000).toFixed(1)}K` : "₹0"}
+                trend={{ value: '+8.2%', direction: 'up' }}
+              />
+              <KPICard
+                title="Pending Approvals"
+                value={stats ? stats.pendingApprovals.toLocaleString() : "0"}
+                trend={{ value: '+23.4%', direction: 'up' }}
+              />
+              <KPICard
+                title="Current Loss Ratio"
+                value={stats ? stats.avgLossRatio.toFixed(1) : "0"}
+                suffix="%"
+                trend={{ value: '-3.1%', direction: 'down' }}
+              />
+            </div>
 
         {/* Risk Heatmap & Charts Row */}
         <div className="grid grid-cols-2 gap-6 mb-8">
@@ -156,26 +256,26 @@ export function AdminOverview() {
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-3 h-3 rounded-full ${
-                        city.risk === 'high'
+                        city.riskLevel.toLowerCase() === 'high'
                           ? 'bg-red-500'
-                          : city.risk === 'moderate'
+                          : city.riskLevel.toLowerCase() === 'moderate'
                           ? 'bg-amber-500'
                           : 'bg-green-500'
                       }`}
                     />
                     <div>
                       <p className="text-sm font-medium text-gray-900">{city.city}</p>
-                      <p className="text-xs text-gray-500">{city.disruption}</p>
+                      <p className="text-xs text-gray-500">{city.activePolicies} policies</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600">{city.claims} claims</span>
+                    <span className="text-sm text-gray-600">{city.totalClaims} claims</span>
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-medium border ${getRiskColor(
-                        city.risk
+                        city.riskLevel.toLowerCase()
                       )}`}
                     >
-                      {city.risk}
+                      {city.riskLevel}
                     </span>
                   </div>
                 </div>
@@ -250,11 +350,11 @@ export function AdminOverview() {
             <AlertTriangle className="w-5 h-5 text-red-600" />
             <h2 className="text-lg font-semibold text-gray-900">Fraud Alerts</h2>
             <span className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-              {fraudAlerts.length} Flagged
+              {fraudAlerts.filter((a: any) => a.fraudScore && a.fraudScore >= 70).length} Flagged
             </span>
           </div>
           <div className="space-y-3">
-            {fraudAlerts.map((alert) => (
+            {fraudAlerts.filter((a: any) => a.fraudScore && a.fraudScore >= 70).slice(0, 5).map((alert: any) => (
               <div
                 key={alert.id}
                 className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
@@ -265,15 +365,15 @@ export function AdminOverview() {
                       Claim ID: {alert.id}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      Worker: {alert.workerId} • {alert.platform} • {alert.zone}
+                      Worker: {alert.userName} ({alert.userId}) • {alert.weatherCondition}
                     </p>
                   </div>
                   <span
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${getAnomalyColor(
-                      alert.anomalyType
-                    )}`}
+                    className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      alert.fraudScore >= 85 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                    }`}
                   >
-                    {alert.anomalyType}
+                    High Risk
                   </span>
                 </div>
                 <div className="flex items-center gap-4">
@@ -281,10 +381,10 @@ export function AdminOverview() {
                     <p className="text-xs text-gray-500 mb-1">Risk Score</p>
                     <p
                       className={`text-lg font-semibold ${
-                        alert.riskScore >= 85 ? 'text-red-600' : 'text-amber-600'
+                        alert.fraudScore >= 85 ? 'text-red-600' : 'text-amber-600'
                       }`}
                     >
-                      {alert.riskScore}%
+                      {alert.fraudScore}%
                     </p>
                   </div>
                   <button
@@ -296,8 +396,15 @@ export function AdminOverview() {
                 </div>
               </div>
             ))}
+            {fraudAlerts.filter((a: any) => a.fraudScore && a.fraudScore >= 70).length === 0 && (
+              <div className="text-center py-8 text-gray-500 text-sm">
+                No high-risk fraud alerts at this time
+              </div>
+            )}
           </div>
         </div>
+          </>
+        )}
       </main>
     </div>
   );
